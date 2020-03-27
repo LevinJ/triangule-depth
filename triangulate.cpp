@@ -7,6 +7,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/Eigenvalues>
+using namespace std;
 
 struct Pose
 {
@@ -61,7 +62,40 @@ int main()
     // 遍历所有的观测数据，并三角化
     Eigen::Vector3d P_est;           // 结果保存到这个变量
     P_est.setZero();
+
+    int num_frames = end_frame_id - start_frame_id;
+    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> D(num_frames*2, 4);
     /* your code begin */
+    //fill in the D matrix
+    for (int i = start_frame_id; i < end_frame_id; ++i) {
+    	Eigen::Matrix<double, 3, 4> Pk;
+    	auto Rcw = camera_pose[i].Rwc.transpose();
+    	auto tcw = -Rcw *camera_pose[i].twc ;
+    	Pk.block(0, 0, 3, 3) = Rcw;
+    	Pk.col(3) = tcw;
+    	double uk = camera_pose[i].uv(0);
+    	double vk = camera_pose[i].uv(1);
+    	Eigen::Matrix<double, 2, 4> dk;
+    	dk.row(0).noalias()=uk * Pk.row(2) - Pk.row(0);
+    	dk.row(1).noalias()=vk * Pk.row(2) - Pk.row(1);
+    	D.block((i-start_frame_id)*2,0,2,4).noalias() = dk;
+    }
+    //solve the Dy=0 problem
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(D.transpose() * D, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    auto lambda = svd.singularValues();
+    cout<<"sigular values="<<lambda.transpose()<<endl;
+    if(lambda(2)/lambda(3) < 1e-3){
+    	cout<<"failure"<<endl;
+    	return -1;
+    }
+
+    Eigen::Vector4d u4 = svd.matrixU().block(0,3, 4,1);
+    if(u4(3)!=0 && u4(2)/u4(3) > 0){
+    	P_est(0) = u4(0)/u4(3);
+    	P_est(1) = u4(1)/u4(3);
+    	P_est(2) = u4(2)/u4(3);
+    }
+
  
     /* your code end */
     
